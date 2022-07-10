@@ -9,8 +9,13 @@ import 'package:flutter/scheduler.dart';
 
 class DreamNavigation extends StatefulWidget {
   final List<Widget> initialWidgets;
+  final bool withFade;
 
-  const DreamNavigation({Key? key, required this.initialWidgets}) : super(key: key);
+  const DreamNavigation({
+    Key? key,
+    required this.initialWidgets,
+    this.withFade = true,
+  }) : super(key: key);
 
   @override
   State<DreamNavigation> createState() => DreamNavigationState();
@@ -20,43 +25,39 @@ class DreamNavigation extends StatefulWidget {
 }
 
 class DreamNavigationState extends State<DreamNavigation> {
-  List<Widget> get _currentStack => widget.initialWidgets;
+  late final _bolter =
+      context.findAncestorWidgetOfExactType<BolterProvider>()?.bolter ?? defaultBolter;
 
-  late var _indexToDismiss = _currentStack.length - 1;
-  final screenWidth = window.physicalSize.width / window.devicePixelRatio;
+  late final _stackController = SyncBuilderController(_bolter,
+      widget.initialWidgets.map((widget) => SizedBox(key: GlobalKey(), child: widget)).toList());
 
+  late final _positionController = SyncBuilderController(_bolter, 0.0);
+  late final _animateController = SyncBuilderController(_bolter, false);
+  late var _toLeft = true;
+
+  late var _indexToDismiss = widget.initialWidgets.length - 1;
   var _initialDx = 0.0;
-  var _positionDx = 0.0;
-
-  var _animate = false;
-  var _toLeft = true;
+  final _screenWidth = window.physicalSize.width / window.devicePixelRatio;
 
   Completer<void>? _processing;
 
   Future<void> add(Widget widget, [Completer<void>? processing]) {
     _processing = processing ?? Completer<void>();
-    defaultBolter.runAndUpdate(action: () {
-      _currentStack.add(widget);
-      _indexToDismiss++;
-      _positionDx = screenWidth;
-    });
+    _stackController.update((value) => value..add(SizedBox(key: GlobalKey(), child: widget)));
+    _indexToDismiss++;
+    _positionController.update((value) => _screenWidth);
     SchedulerBinding.instance.addPostFrameCallback((_) {
-      defaultBolter.runAndUpdate(action: () {
-        _animate = true;
-        _toLeft = true;
-      });
+      _animateController.update((value) => true);
+      _toLeft = true;
     });
     return _processing!.future;
   }
 
   Future<void> removeLast() {
     _processing = Completer();
-    defaultBolter.runAndUpdate(action: () {});
     SchedulerBinding.instance.addPostFrameCallback((_) {
-      defaultBolter.runAndUpdate(action: () {
-        _toLeft = false;
-        _animate = true;
-      });
+      _animateController.update((value) => true);
+      _toLeft = false;
     });
     return _processing!.future;
   }
@@ -74,122 +75,120 @@ class DreamNavigationState extends State<DreamNavigation> {
   Widget build(BuildContext context) {
     return WillPopScope(
       onWillPop: () async {
-        if (_currentStack.length > 1) {
+        if (_stackController.value.length > 1) {
           removeLast();
         }
         return true;
       },
-      child: SyncBuilder(
-        getter: () => _currentStack,
-        builder: (ctx) {
+      child: SyncBuilder<List<Widget>>.controller(
+        controller: _stackController,
+        builder: (ctx, value) {
           Widget? preLastWidget;
           if (_indexToDismiss > 0) {
-            final preLastWidgetInStack = _currentStack[_indexToDismiss - 1];
+            final preLastWidgetInStack = value[_indexToDismiss - 1];
             preLastWidget = _ScreenFoundation(
-              key: preLastWidgetInStack.key ?? UniqueKey(),
+              withFade: widget.withFade,
               direction: true,
-              currentOffset: () => _positionDx,
+              currentOffset: _positionController,
               child: preLastWidgetInStack,
             );
           }
           final lastInStack = _ScreenFoundation(
-            currentOffset: () => _positionDx,
+            withFade: widget.withFade,
+            currentOffset: _positionController,
             direction: false,
             withCorners: false,
-            child: _currentStack.last,
+            child: value.last,
           );
-          final lastWidget = _indexToDismiss > 0
+          final animate = _animateController.value;
+
+          final finalWidget = _indexToDismiss > 0
               ? GestureDetector(
-                  onHorizontalDragStart: (details) {
-                    if (!_animate) {
-                      _initialDx = details.globalPosition.dx;
-                    }
+            onHorizontalDragStart: (details) {
+              if (!animate) {
+                _initialDx = details.globalPosition.dx;
+              }
+            },
+            onHorizontalDragUpdate: (details) {
+              if (!animate) {
+                final currentX = details.globalPosition.dx;
+                if (currentX >= _initialDx) {
+                  _positionController
+                      .update((value) => details.globalPosition.dx - _initialDx);
+                }
+              }
+            },
+            onHorizontalDragEnd: (details) {
+              if (!animate && _positionController.value != 0.0) {
+                _toLeft = _positionController.value < _screenWidth / 2;
+                _animateController.update((value) => true);
+              }
+            },
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                if (preLastWidget != null) preLastWidget,
+                SyncBuilder<bool>.controller(
+                  controller: _animateController,
+                  builder: (_, value) {
+                    final positionDx = _positionController.value;
+                    return value
+                        ? Animator<double>(
+                      triggerOnInit: true,
+                      resetAnimationOnRebuild: true,
+                      duration: const Duration(milliseconds: 300),
+                      curve: Curves.fastOutSlowIn,
+                      tween: _toLeft
+                          ? Tween(begin: positionDx, end: 0.0)
+                          : Tween(begin: positionDx, end: _screenWidth),
+                      customListener: (status) {
+                        _positionController.update((value) => status.value);
+                      },
+                      endAnimationListener: (_) {
+                        _animateController.update((value) => false);
+                        _positionController.update((value) => 0.0);
+                        if (!_toLeft) {
+                          _indexToDismiss--;
+                          _stackController.update((value) => value..removeLast());
+                        }
+                        if (_replacement != null) {
+                          add(_replacement!, _processing);
+                          _replacement = null;
+                        } else {
+                          _processing?.complete();
+                          _processing = null;
+                        }
+                      },
+                      builder: (_, status, __) {
+                        final position = status.value;
+                        return Positioned(
+                          top: 0,
+                          bottom: 0,
+                          left: position,
+                          right: -position,
+                          child: lastInStack,
+                        );
+                      },
+                    )
+                        : SyncBuilder<double>.controller(
+                      controller: _positionController,
+                      builder: (context, value) {
+                        return Positioned(
+                          top: 0,
+                          bottom: 0,
+                          left: value,
+                          right: -value,
+                          child: lastInStack,
+                        );
+                      },
+                    );
                   },
-                  onHorizontalDragUpdate: (details) {
-                    if (!_animate) {
-                      final currentX = details.globalPosition.dx;
-                      if (currentX >= _initialDx) {
-                        defaultBolter.runAndUpdate(action: () {
-                          _positionDx = details.globalPosition.dx - _initialDx;
-                        });
-                      }
-                    }
-                  },
-                  onHorizontalDragEnd: (details) {
-                    if (!_animate && _positionDx != 0.0) {
-                      defaultBolter.runAndUpdate(action: () {
-                        _toLeft = _positionDx < screenWidth / 2;
-                        return _animate = true;
-                      });
-                    }
-                  },
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      if (preLastWidget != null) preLastWidget,
-                      SyncBuilder(
-                        getter: () => _animate,
-                        builder: (_) {
-                          return _animate
-                              ? Animator<double>(
-                                  triggerOnInit: true,
-                                  resetAnimationOnRebuild: true,
-                                  duration: const Duration(milliseconds: 300),
-                                  curve: Curves.fastOutSlowIn,
-                                  tween: _toLeft
-                                      ? Tween(begin: _positionDx, end: 0.0)
-                                      : Tween(begin: _positionDx, end: screenWidth),
-                                  customListener: (status) {
-                                    defaultBolter.runAndUpdate(
-                                        action: () => _positionDx = status.value);
-                                  },
-                                  endAnimationListener: (_) {
-                                    defaultBolter.runAndUpdate(action: () {
-                                      _animate = false;
-                                      _positionDx = 0.0;
-                                      if (!_toLeft) {
-                                        _indexToDismiss--;
-                                        _currentStack.removeLast();
-                                      }
-                                    });
-                                    if (_replacement != null) {
-                                      add(_replacement!, _processing);
-                                      _replacement = null;
-                                    } else {
-                                      _processing?.complete();
-                                      _processing = null;
-                                    }
-                                  },
-                                  builder: (_, status, __) {
-                                    final position = status.value;
-                                    return Positioned(
-                                      top: 0,
-                                      bottom: 0,
-                                      left: position,
-                                      right: -position,
-                                      child: lastInStack,
-                                    );
-                                  },
-                                )
-                              : SyncBuilder<double>(
-                                  getter: () => _positionDx,
-                                  builder: (context) {
-                                    return Positioned(
-                                      top: 0,
-                                      bottom: 0,
-                                      left: _positionDx,
-                                      right: -_positionDx,
-                                      child: lastInStack,
-                                    );
-                                  },
-                                );
-                        },
-                      ),
-                    ],
-                  ),
-                )
+                ),
+              ],
+            ),
+          )
               : lastInStack;
-          return lastWidget;
+          return finalWidget;
         },
       ),
     );
@@ -197,10 +196,11 @@ class DreamNavigationState extends State<DreamNavigation> {
 }
 
 class _ScreenFoundation extends StatelessWidget {
-  final double Function() currentOffset;
+  final SyncBuilderController<double> currentOffset;
   final Widget child;
   final bool direction;
   final bool withCorners;
+  final bool withFade;
 
   const _ScreenFoundation({
     Key? key,
@@ -208,122 +208,122 @@ class _ScreenFoundation extends StatelessWidget {
     required this.currentOffset,
     required this.direction,
     this.withCorners = true,
+    this.withFade = true,
   }) : super(key: key);
 
   @override
   Widget build(BuildContext context) => Row(
-        children: [
-          _PostSpacer(
-            direction: direction,
-            offset: currentOffset,
-          ),
-          Expanded(
-            child: Column(
-              children: [
-                _PostSpacer(
-                  direction: direction,
-                  offset: currentOffset,
-                ),
-                Expanded(
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      withCorners
-                          ? child
-                          : ClipRRect(
-                              borderRadius: const BorderRadius.all(Radius.circular(20)),
-                              child: child,
-                            ),
-                      Positioned(
-                        left: 0,
-                        right: 0,
-                        top: 0,
-                        bottom: 0,
-                        child: SyncBuilder<double>(
-                          getter: currentOffset,
-                          builder: (ctx) {
-                            final screenSize = window.physicalSize / window.devicePixelRatio;
-                            final value = currentOffset();
-                            final newValue = value / screenSize.width;
-                            final calculated =
-                                Curves.easeInQuint.transform(direction ? 1 - newValue : newValue);
-                            return calculated == 0
-                                ? const SizedBox.shrink()
-                                : DecoratedBox(
-                                    decoration: BoxDecoration(
-                                        borderRadius: const BorderRadius.all(Radius.circular(20)),
-                                        color: Colors.black
-                                            .withOpacity(Curves.decelerate.transform(calculated))),
-                                  );
-                          },
-                        ),
-                      ),
-                      if (withCorners)
-                        const Positioned(
-                          bottom: 0,
-                          left: 0,
-                          child: _corner,
-                        ),
-                      if (withCorners)
-                        Positioned(
-                          bottom: 0,
-                          right: 0,
-                          child: Transform.rotate(
-                            angle: -pi / 2,
-                            child: _corner,
-                          ),
-                        ),
-                      if (withCorners)
-                        Positioned(
-                          top: 0,
-                          right: 0,
-                          child: Transform.rotate(
-                            angle: -pi,
-                            child: _corner,
-                          ),
-                        ),
-                      if (withCorners)
-                        Positioned(
-                          top: 0,
-                          left: 0,
-                          child: Transform.rotate(
-                            angle: -1.5 * pi,
-                            child: _corner,
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-                _PostSpacer(
-                  direction: direction,
-                  offset: currentOffset,
-                ),
-              ],
+    children: [
+      _PostSpacer(
+        direction: direction,
+        offset: currentOffset,
+      ),
+      Expanded(
+        child: Column(
+          children: [
+            _PostSpacer(
+              direction: direction,
+              offset: currentOffset,
             ),
-          ),
-        ],
-      );
+            Expanded(
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  withCorners
+                      ? child
+                      : ClipRRect(
+                    borderRadius: const BorderRadius.all(Radius.circular(20)),
+                    child: child,
+                  ),
+                  if (withFade)
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      top: 0,
+                      bottom: 0,
+                      child: SyncBuilder<double>.controller(
+                        controller: currentOffset,
+                        builder: (ctx, value) {
+                          final screenSize = window.physicalSize / window.devicePixelRatio;
+                          final newValue = value / screenSize.width;
+                          final calculated =
+                          Curves.easeInQuint.transform(direction ? 1 - newValue : newValue);
+                          return calculated == 0
+                              ? const SizedBox.shrink()
+                              : DecoratedBox(
+                            decoration: BoxDecoration(
+                                borderRadius: const BorderRadius.all(Radius.circular(20)),
+                                color: Colors.black.withOpacity(
+                                    Curves.decelerate.transform(calculated))),
+                          );
+                        },
+                      ),
+                    ),
+                  if (withCorners)
+                    const Positioned(
+                      bottom: 0,
+                      left: 0,
+                      child: _corner,
+                    ),
+                  if (withCorners)
+                    Positioned(
+                      bottom: 0,
+                      right: 0,
+                      child: Transform.rotate(
+                        angle: -pi / 2,
+                        child: _corner,
+                      ),
+                    ),
+                  if (withCorners)
+                    Positioned(
+                      top: 0,
+                      right: 0,
+                      child: Transform.rotate(
+                        angle: -pi,
+                        child: _corner,
+                      ),
+                    ),
+                  if (withCorners)
+                    Positioned(
+                      top: 0,
+                      left: 0,
+                      child: Transform.rotate(
+                        angle: -1.5 * pi,
+                        child: _corner,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            _PostSpacer(
+              direction: direction,
+              offset: currentOffset,
+            ),
+          ],
+        ),
+      ),
+    ],
+  );
 }
 
 class _PostSpacer extends StatelessWidget {
-  final double Function() offset;
+  final SyncBuilderController<double> offset;
   final bool direction;
 
   const _PostSpacer({Key? key, required this.offset, required this.direction}) : super(key: key);
 
   @override
-  Widget build(BuildContext context) => SyncBuilder<double>(
-        getter: offset,
-        builder: (context) {
-          final screenSize = MediaQuery.of(context);
-          final value = offset();
-          final newValue = value / screenSize.size.width;
-          final calculated = direction ? 1 - newValue : newValue;
-          final calculatedPadding = 23 * calculated;
-          if (calculatedPadding == 0) return const SizedBox.shrink();
-          return SizedBox.square(dimension: calculatedPadding);
-        },
-      );
+  Widget build(BuildContext context) => SyncBuilder<double>.controller(
+    controller: offset,
+    builder: (context, value) {
+      final width = window.physicalSize.width / window.devicePixelRatio;
+      final newValue = value / width;
+      final calculated = direction ? 1 - newValue : newValue;
+      final calculatedPadding = 24 * calculated;
+      if (calculatedPadding == 0) return const SizedBox.shrink();
+      return SizedBox.square(dimension: calculatedPadding);
+    },
+  );
 }
 
 const _corner = SizedBox.square(

@@ -12,14 +12,14 @@
         <entry key="bolter">
           <value>
             <list>
-              <option value="$PROJECT_DIR$/../flutter/.pub-cache/hosted/pub.dartlang.org/bolter-3.1.1/lib" />
+              <option value="$PROJECT_DIR$/../flutter/.pub-cache/hosted/pub.dartlang.org/bolter-3.1.2/lib" />
             </list>
           </value>
         </entry>
         <entry key="bolter_flutter">
           <value>
             <list>
-              <option value="$PROJECT_DIR$/../flutter/.pub-cache/hosted/pub.dartlang.org/bolter_flutter-6.7.3/lib" />
+              <option value="$PROJECT_DIR$/../flutter/.pub-cache/hosted/pub.dartlang.org/bolter_flutter-6.8.1/lib" />
             </list>
           </value>
         </entry>
@@ -139,8 +139,8 @@
     </properties>
     <CLASSES>
       <root url="file://$PROJECT_DIR$/../flutter/.pub-cache/hosted/pub.dartlang.org/animator-3.2.0/lib" />
-      <root url="file://$PROJECT_DIR$/../flutter/.pub-cache/hosted/pub.dartlang.org/bolter-3.1.1/lib" />
-      <root url="file://$PROJECT_DIR$/../flutter/.pub-cache/hosted/pub.dartlang.org/bolter_flutter-6.7.3/lib" />
+      <root url="file://$PROJECT_DIR$/../flutter/.pub-cache/hosted/pub.dartlang.org/bolter-3.1.2/lib" />
+      <root url="file://$PROJECT_DIR$/../flutter/.pub-cache/hosted/pub.dartlang.org/bolter_flutter-6.8.1/lib" />
       <root url="file://$PROJECT_DIR$/../flutter/.pub-cache/hosted/pub.dartlang.org/characters-1.2.0/lib" />
       <root url="file://$PROJECT_DIR$/../flutter/.pub-cache/hosted/pub.dartlang.org/clock-1.1.0/lib" />
       <root url="file://$PROJECT_DIR$/../flutter/.pub-cache/hosted/pub.dartlang.org/collection-1.16.0/lib" />

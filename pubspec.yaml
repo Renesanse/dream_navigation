@@ -1,12 +1,13 @@
 name: dream_navigation
-description: A starting point for Dart libraries or applications.
-version: 1.0.0
+description: I like this navigator, thats all...
+version: 1.0.7
+homepage: https://github.com/Renesanse/dream_navigation
 
 environment:
   sdk: '>=2.17.5 <3.0.0'
 
 dependencies:
-  bolter_flutter: ^6.7.2
+  bolter_flutter: ^6.8.1
   animator: ^3.2.0
   flutter:
     sdk: flutter
